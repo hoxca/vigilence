@@ -163,32 +163,33 @@ func main() {
 }
 
 func voyagerStatusDebug() {
-	Log.Debugf("Voyager     status: %d\n", voyagerStatus.VOYSTAT)
-	Log.Debugf("Voyager  connected: %s\n", strconv.FormatBool(voyagerStatus.SETUPCONN))
-	Log.Debugf("Mount    connected: %s\n", strconv.FormatBool(voyagerStatus.MNTCONN))
-	Log.Debugf("Mount       parked: %s\n", strconv.FormatBool(voyagerStatus.MNTPARK))
+	Log.Debugf("Voyager Status:")
+	Log.Debugf("  Voyager    status: %d", voyagerStatus.VOYSTAT)
+	Log.Debugf("  Voyager connected: %s", strconv.FormatBool(voyagerStatus.SETUPCONN))
+	Log.Debugf("  Mount   connected: %s", strconv.FormatBool(voyagerStatus.MNTCONN))
+	Log.Debugf("  Mount      parked: %s\n", strconv.FormatBool(voyagerStatus.MNTPARK))
 }
 
 func emergencyLogic() {
 
 	if voyagerStatus.MNTCONN && voyagerStatus.SEQRUNNING && !voyagerStatus.DRAGRUNNING {
-		fmt.Println("Voyager is on the fly, must stop sequence, park mount and return")
+		Log.Debugln("Voyager is on the fly, must stop sequence, park mount and return")
 	}
 
 	if voyagerStatus.MNTCONN && voyagerStatus.SEQRUNNING && voyagerStatus.DRAGRUNNING {
-		fmt.Println("Voyager dragscript and sequence are running, let's voyager manage emergency")
+		Log.Debugln("Voyager dragscript and sequence are running, let's voyager manage emergency")
 	}
 
 	if voyagerStatus.MNTCONN && !voyagerStatus.SEQRUNNING && voyagerStatus.DRAGRUNNING {
-		fmt.Println("Voyager dragscript is running, let's voyager manage emergency")
+		Log.Debugln("Voyager dragscript is running, let's voyager manage emergency")
 	}
 
 	if voyagerStatus.MNTCONN && !voyagerStatus.SEQRUNNING && !voyagerStatus.DRAGRUNNING {
-		fmt.Println("Voyager idle and mount connected, must park mount and return")
+		Log.Debugln("Voyager idle and mount connected, must park mount and return")
 	}
 
 	if !voyagerStatus.SETUPCONN {
-		fmt.Println("Voyager not connected, Talon will manage parking")
+		Log.Debugln("Voyager not connected, Talon will manage parking")
 	}
 
 }
@@ -218,11 +219,11 @@ func recvFromVoyager(c *websocket.Conn, quit chan bool) {
 				ts, level, logline := parseLogEvent(message)
 				Log.Debugf("recv log: %.5f %s %s", ts, level, logline)
 			case strings.Contains(msg, `"Event":"RemoteActionResult"`):
-				Log.Debugf("recv msg: %s", strings.TrimRight(msg, "\r\n"))
+				Log.Debugf("recv result: %s", strings.TrimRight(msg, "\r\n"))
 			case strings.Contains(msg, `"Event":"Version"`):
-				Log.Debugf("recv msg: %s", strings.TrimRight(msg, "\r\n"))
+				Log.Debugf("recv version: %s", strings.TrimRight(msg, "\r\n"))
 			case strings.Contains(msg, `"Event":"VikingManaged"`):
-				Log.Debugf("recv msg: %s", strings.TrimRight(msg, "\r\n"))
+				Log.Debugf("recv viking: %s", strings.TrimRight(msg, "\r\n"))
 			default:
 				Log.Debugf("recv not managed: %s", strings.TrimRight(msg, "\r\n"))
 			}
@@ -351,7 +352,7 @@ func heartbeatVoyager(c *websocket.Conn, quit chan bool) {
 
 func connectVoyager(addr *string) (*websocket.Conn, error) {
 	u := url.URL{Scheme: "ws", Host: *addr, Path: "/"}
-	Log.Debugf("connecting to %s\n", u.String())
+	Log.Debugf("connecting to %s", u.String())
 
 	websocket.DefaultDialer.HandshakeTimeout = timeout * time.Second
 	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
