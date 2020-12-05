@@ -133,6 +133,12 @@ type params struct {
 	Level       *int   `json:"Level,omitempty"`
 	IsHalt      bool   `json:"IsHalt,omitempty"`
 	CommandType int    `json:"CommandType,omitempty"`
+	IsSetPoint  bool   `json:"IsSetPoint,omitempty"`
+	IsCoolDown  bool   `json:"IsCoolDown,omitempty"`
+	IsASync     bool   `json:"IsASync,omitempty"`
+	IsWarmup    bool   `json:"IsWarmup,omitempty"`
+	IsCoolerOFF bool   `json:"IsCoolerOFF,omitempty"`
+	Temperature int    `json:"Temperature,omitempty"`
 }
 
 var voyagerStatus controldata
@@ -412,6 +418,23 @@ func remoteAbort(c *websocket.Conn) {
 	}
 
 	data, _ := json.Marshal(abortHaltAll)
+	sendToVoyager(c, data)
+}
+
+func remoteWarming(c *websocket.Conn) {
+	p := &params{
+		IsASync:     true,
+		IsWarmup:    true,
+		IsCoolerOFF: false,
+	}
+
+	warmCamera := &method{
+		Method: "RemoteCooling",
+		Params: *p,
+		ID:     3,
+	}
+
+	data, _ := json.Marshal(warmCamera)
 	sendToVoyager(c, data)
 }
 
