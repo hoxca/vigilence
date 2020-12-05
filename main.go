@@ -293,7 +293,18 @@ func parseControlData(message []byte) controldata {
 	var cdata controldata
 	err := json.Unmarshal([]byte(message), &cdata)
 	if err != nil {
-		Log.Warn("Cannot parse logEvent: %s", err)
+		Log.Warn("Cannot parse controlData: %s", err)
+	}
+
+	if cdata.RUNSEQ == "" {
+		cdata.SEQRUNNING = false
+	} else {
+		cdata.SEQRUNNING = true
+	}
+	if cdata.RUNDS == "" {
+		cdata.DRAGRUNNING = false
+	} else {
+		cdata.DRAGRUNNING = true
 	}
 	return cdata
 }
