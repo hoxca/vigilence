@@ -129,9 +129,10 @@ type method struct {
 }
 
 type params struct {
-	UID   string `json:"UID"`
-	IsOn  bool   `json:"IsOn"`
-	Level *int   `json:"Level,omitempty"`
+	UID    string `json:"UID"`
+	IsOn   bool   `json:"IsOn"`
+	Level  *int   `json:"Level,omitempty"`
+	IsHalt bool   `json:"IsHalt,omitempty"`
 }
 
 var voyagerStatus controldata
@@ -406,6 +407,24 @@ func remoteSetDashboard(c *websocket.Conn) {
 	}
 
 	data, _ := json.Marshal(setDashboard)
+	sendToVoyager(c, data)
+}
+
+func remoteAbort(c *websocket.Conn) {
+
+	time.Sleep(2 * time.Second)
+
+	p := &params{
+		IsHalt: true,
+	}
+
+	abortHaltAll := &method{
+		Method: "Abort",
+		Params: *p,
+		ID:     3,
+	}
+
+	data, _ := json.Marshal(abortHaltAll)
 	sendToVoyager(c, data)
 }
 
