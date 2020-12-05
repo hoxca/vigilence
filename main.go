@@ -166,20 +166,6 @@ func main() {
 
 	fmt.Printf("Voyager     status: %d\n", voyagerStatus.VOYSTAT)
 	fmt.Printf("Voyager  connected: %s\n", strconv.FormatBool(voyagerStatus.SETUPCONN))
-	if voyagerStatus.RUNSEQ == "" {
-		fmt.Println("Sequence   running: false")
-		voyagerStatus.SEQRUNNING = false
-	} else {
-		fmt.Printf("Sequence   running: true; sequence: %s\n", voyagerStatus.RUNSEQ)
-		voyagerStatus.SEQRUNNING = true
-	}
-	if voyagerStatus.RUNDS == "" {
-		fmt.Println("Dragscript running: false")
-		voyagerStatus.DRAGRUNNING = false
-	} else {
-		fmt.Printf("Dragscript running: true; dragscript: %s\n", voyagerStatus.RUNDS)
-		voyagerStatus.DRAGRUNNING = true
-	}
 	fmt.Printf("Mount    connected: %s\n", strconv.FormatBool(voyagerStatus.MNTCONN))
 	fmt.Printf("Mount       parked: %s\n", strconv.FormatBool(voyagerStatus.MNTPARK))
 
@@ -297,13 +283,17 @@ func parseControlData(message []byte) controldata {
 	}
 
 	if cdata.RUNSEQ == "" {
+		Log.Debugln("Sequence   running: false")
 		cdata.SEQRUNNING = false
 	} else {
+		Log.Debugf("Sequence   running: true; sequence: %s\n", voyagerStatus.RUNSEQ)
 		cdata.SEQRUNNING = true
 	}
 	if cdata.RUNDS == "" {
+		Log.Debugln("Dragscript running: false")
 		cdata.DRAGRUNNING = false
 	} else {
+		Log.Debugf("Dragscript running: true; dragscript: %s\n", voyagerStatus.RUNDS)
 		cdata.DRAGRUNNING = true
 	}
 	return cdata
