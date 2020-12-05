@@ -118,6 +118,8 @@ type controldata struct {
 	ROTPA       int     `json:"ROTPA"`
 	ROTSKYPA    int     `json:"ROTSKYPA"`
 	ROTISROT    bool    `json:"ROTISROT"`
+	DRAGRUNNING bool
+	SEQRUNNING  bool
 }
 
 type method struct {
@@ -134,6 +136,8 @@ type params struct {
 
 var voyagerStatus controldata
 
+var timeout = time.Duration(1)
+
 func main() {
 	flag.Parse()
 	setUpLogs()
@@ -144,7 +148,12 @@ func main() {
 		}
 	}
 
-	c := connectVoyager(addr)
+	c, errcon := connectVoyager(addr)
+	if errcon != nil {
+		Log.Debugf("Voyager is not running or is not responding !\n")
+		fmt.Println("Unreachable")
+		os.Exit(1)
+	}
 	defer c.Close()
 
 	quit := make(chan bool)
@@ -157,14 +166,41 @@ func main() {
 	fmt.Printf("Voyager  connected: %s\n", strconv.FormatBool(voyagerStatus.SETUPCONN))
 	if voyagerStatus.RUNSEQ == "" {
 		fmt.Println("Sequence   running: false")
+		voyagerStatus.SEQRUNNING = false
 	} else {
 		fmt.Printf("Sequence   running: true; sequence: %s\n", voyagerStatus.RUNSEQ)
+		voyagerStatus.SEQRUNNING = true
 	}
 	if voyagerStatus.RUNDS == "" {
 		fmt.Println("Dragscript running: false")
+		voyagerStatus.DRAGRUNNING = false
 	} else {
 		fmt.Printf("Dragscript running: true; dragscript: %s\n", voyagerStatus.RUNDS)
+		voyagerStatus.DRAGRUNNING = true
 	}
+	fmt.Printf("Mount    connected: %s\n", strconv.FormatBool(voyagerStatus.MNTCONN))
+	fmt.Printf("Mount       parked: %s\n", strconv.FormatBool(voyagerStatus.MNTPARK))
+
+	if voyagerStatus.MNTCONN && voyagerStatus.SEQRUNNING && !voyagerStatus.DRAGRUNNING {
+		fmt.Println("Voyager is on the fly, must stop sequence, park mount and return")
+	}
+
+	if voyagerStatus.MNTCONN && voyagerStatus.SEQRUNNING && voyagerStatus.DRAGRUNNING {
+		fmt.Println("Voyager dragscript and sequence are running, let's voyager manage emergency")
+	}
+
+	if voyagerStatus.MNTCONN && !voyagerStatus.SEQRUNNING && voyagerStatus.DRAGRUNNING {
+		fmt.Println("Voyager dragscript is running, let's voyager manage emergency")
+	}
+
+	if voyagerStatus.MNTCONN && !voyagerStatus.SEQRUNNING && !voyagerStatus.DRAGRUNNING {
+		fmt.Println("Voyager idle and mount connected, must park mount and return")
+	}
+
+	if !voyagerStatus.SETUPCONN {
+		fmt.Println("Voyager not connected, Talon will manage parking")
+	}
+
 }
 
 func isVoyagerRunning() bool {
@@ -323,16 +359,17 @@ func heartbeatVoyager(c *websocket.Conn, quit chan bool) {
 	}
 }
 
-func connectVoyager(addr *string) *websocket.Conn {
+func connectVoyager(addr *string) (*websocket.Conn, error) {
 	u := url.URL{Scheme: "ws", Host: *addr, Path: "/"}
 	Log.Debugf("connecting to %s\n", u.String())
 
+	websocket.DefaultDialer.HandshakeTimeout = timeout * time.Second
 	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
 		Log.Printf("Can't connect, verify Voyager address or tcp port in the Voyager configuration\n")
-		Log.Fatal("Critical: ", err)
+		// Log.Fatal("Critical: ", err)
 	}
-	return c
+	return c, err
 }
 
 func askForLog(c *websocket.Conn) {
