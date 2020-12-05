@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -144,12 +143,6 @@ func main() {
 	flag.Parse()
 	setUpLogs()
 
-	if runtime.GOOS == "windows" {
-		if !isVoyagerRunning() {
-			os.Exit(1)
-		}
-	}
-
 	c, errcon := connectVoyager(addr)
 	if errcon != nil {
 		Log.Debugf("Voyager is not running or is not responding !\n")
@@ -163,11 +156,20 @@ func main() {
 	//askForLog(c)
 	remoteSetDashboard(c)
 	heartbeatVoyager(c, quit)
+	c.Close()
 
-	fmt.Printf("Voyager     status: %d\n", voyagerStatus.VOYSTAT)
-	fmt.Printf("Voyager  connected: %s\n", strconv.FormatBool(voyagerStatus.SETUPCONN))
-	fmt.Printf("Mount    connected: %s\n", strconv.FormatBool(voyagerStatus.MNTCONN))
-	fmt.Printf("Mount       parked: %s\n", strconv.FormatBool(voyagerStatus.MNTPARK))
+	voyagerStatusDebug()
+	emergencyLogic()
+}
+
+func voyagerStatusDebug() {
+	Log.Debugf("Voyager     status: %d\n", voyagerStatus.VOYSTAT)
+	Log.Debugf("Voyager  connected: %s\n", strconv.FormatBool(voyagerStatus.SETUPCONN))
+	Log.Debugf("Mount    connected: %s\n", strconv.FormatBool(voyagerStatus.MNTCONN))
+	Log.Debugf("Mount       parked: %s\n", strconv.FormatBool(voyagerStatus.MNTPARK))
+}
+
+func emergencyLogic() {
 
 	if voyagerStatus.MNTCONN && voyagerStatus.SEQRUNNING && !voyagerStatus.DRAGRUNNING {
 		fmt.Println("Voyager is on the fly, must stop sequence, park mount and return")
@@ -191,20 +193,6 @@ func main() {
 
 }
 
-func isVoyagerRunning() bool {
-	// exit if process is already running
-	pname := "voyager"
-	if runtime.GOOS == "windows" {
-		pname = "voyager.exe"
-	}
-	Log.Printf("run %s\n", pname)
-	if processAlreadyRunning(pname) {
-		fmt.Println("Ok, voyager is running !")
-		return true
-	}
-	return false
-}
-
 func recvFromVoyager(c *websocket.Conn, quit chan bool) {
 	for {
 		select {
@@ -222,7 +210,6 @@ func recvFromVoyager(c *websocket.Conn, quit chan bool) {
 			msg := string(message)
 			switch {
 			case strings.Contains(msg, `"Event":"ControlData"`):
-				Log.Debug("recv controldata")
 				Log.Debugf("recv msg: %s", strings.TrimRight(msg, "\r\n"))
 				voyagerStatus = parseControlData(message)
 				quit <- true
