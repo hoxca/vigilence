@@ -129,10 +129,11 @@ type method struct {
 }
 
 type params struct {
-	UID    string `json:"UID"`
-	IsOn   bool   `json:"IsOn"`
-	Level  *int   `json:"Level,omitempty"`
-	IsHalt bool   `json:"IsHalt,omitempty"`
+	UID         string `json:"UID"`
+	IsOn        bool   `json:"IsOn"`
+	Level       *int   `json:"Level,omitempty"`
+	IsHalt      bool   `json:"IsHalt,omitempty"`
+	CommandType int    `json:"CommandType,omitempty"`
 }
 
 var voyagerStatus controldata
@@ -411,9 +412,6 @@ func remoteSetDashboard(c *websocket.Conn) {
 }
 
 func remoteAbort(c *websocket.Conn) {
-
-	time.Sleep(2 * time.Second)
-
 	p := &params{
 		IsHalt: true,
 	}
@@ -425,6 +423,22 @@ func remoteAbort(c *websocket.Conn) {
 	}
 
 	data, _ := json.Marshal(abortHaltAll)
+	sendToVoyager(c, data)
+}
+
+func remotePark(c *websocket.Conn) {
+	p := &params{
+		UID:         fmt.Sprintf("%s", uuid.Must(uuid.NewV4())),
+		CommandType: 3,
+	}
+
+	parkMount := &method{
+		Method: "RemoteMountFastCommand",
+		Params: *p,
+		ID:     4,
+	}
+
+	data, _ := json.Marshal(parkMount)
 	sendToVoyager(c, data)
 }
 
