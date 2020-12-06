@@ -340,14 +340,14 @@ func parseControlData(message []byte) controldata {
 		Log.Debugln("Sequence   running: false")
 		cdata.SEQRUNNING = false
 	} else {
-		Log.Debugf("Sequence   running: true; sequence: %s\n", cdata.RUNSEQ)
+		Log.Debugf("Sequence   running: true; sequence: %s", cdata.RUNSEQ)
 		cdata.SEQRUNNING = true
 	}
 	if cdata.RUNDS == "" {
 		Log.Debugln("Dragscript running: false")
 		cdata.DRAGRUNNING = false
 	} else {
-		Log.Debugf("Dragscript running: true; dragscript: %s\n", cdata.RUNDS)
+		Log.Debugf("Dragscript running: true; dragscript: %s", cdata.RUNDS)
 		cdata.DRAGRUNNING = true
 	}
 	controlDataUpdated = true
