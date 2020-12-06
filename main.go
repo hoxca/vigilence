@@ -144,9 +144,11 @@ type params struct {
 }
 
 var voyagerStatus controldata
-var emergencyManage = false
+var emergencyManaged = false
 
 var timeout = time.Duration(1)
+var done chan bool
+var quit chan bool
 
 func main() {
 	flag.Parse()
@@ -160,24 +162,27 @@ func main() {
 	}
 	defer c.Close()
 
-	quit := make(chan bool)
-	go recvFromVoyager(c, quit)
-	//askForLog(c)
+	quit = make(chan bool)
+	done = make(chan bool)
+
+	go recvFromVoyager(c, done)
 	remoteSetDashboard(c)
 	go heartbeatVoyager(c, quit)
-	//	c.Close()
 
 	for {
-		select {
-		case <-quit:
-			return
-		default:
-			if controlDataUpdated && !emergencyManage {
-				voyagerStatusDebug()
-				emergencyLogic(c, quit)
-			}
+		if controlDataUpdated && !emergencyManaged {
+			voyagerStatusDebug()
+			emergencyLogic(c, quit)
 		}
+		if emergencyManaged {
+			Log.Debugf("Emergency managed")
+			break
+		}
+		// Log.Debugf("Main loop")
+		time.Sleep(150 * time.Millisecond)
 	}
+
+	// fmt.Println("that's all folks")
 }
 
 func voyagerStatusDebug() {
@@ -192,7 +197,6 @@ func voyagerStatusDebug() {
 
 func emergencyLogic(c *websocket.Conn, quit chan bool) {
 
-	emergencyManage = true
 	if controlDataUpdated {
 
 		if voyagerStatus.MNTCONN && voyagerStatus.SEQRUNNING && !voyagerStatus.DRAGRUNNING {
@@ -208,19 +212,16 @@ func emergencyLogic(c *websocket.Conn, quit chan bool) {
 				remotePark(c)
 			}
 			time.Sleep(2 * time.Second)
-			quit <- true
 		}
 
 		if voyagerStatus.MNTCONN && voyagerStatus.SEQRUNNING && voyagerStatus.DRAGRUNNING {
 			Log.Debugln("Voyager dragscript and sequence are running, let's voyager manage emergency")
 			fmt.Println("Dragscript")
-			quit <- true
 		}
 
 		if voyagerStatus.MNTCONN && !voyagerStatus.SEQRUNNING && voyagerStatus.DRAGRUNNING {
 			Log.Debugln("Voyager dragscript is running, let's voyager manage emergency")
 			fmt.Println("Dragscript")
-			quit <- true
 		}
 
 		if voyagerStatus.MNTCONN && !voyagerStatus.SEQRUNNING && !voyagerStatus.DRAGRUNNING {
@@ -234,29 +235,32 @@ func emergencyLogic(c *websocket.Conn, quit chan bool) {
 				remotePark(c)
 			}
 			time.Sleep(2 * time.Second)
-			quit <- true
 		}
 
 		if !voyagerStatus.SETUPCONN {
 			Log.Debugln("Voyager not connected, Talon will manage parking")
 			fmt.Println("NotConnected")
-			quit <- true
 		}
+
+		done <- true
+		time.Sleep(1 * time.Second)
+		emergencyManaged = true
 	}
 
 }
 
-func recvFromVoyager(c *websocket.Conn, quit chan bool) {
+func recvFromVoyager(c *websocket.Conn, done chan bool) {
 	for {
 		select {
-		case <-quit:
+		case <-done:
+			Log.Debugf("Quit recv loop!")
+			quit <- true
 			return
 		default:
 			_, message, err := c.ReadMessage()
 			if err != nil {
-				Log.Debug("read:", err)
-				os.Exit(1)
-				//quit <- true
+				Log.Warn("read:", err)
+				quit <- true
 				return
 			}
 			// parse incoming message
@@ -280,6 +284,8 @@ func recvFromVoyager(c *websocket.Conn, quit chan bool) {
 				Log.Debugf("recv not managed: %s", strings.TrimRight(msg, "\r\n"))
 			}
 		}
+		time.Sleep(50 * time.Millisecond)
+		// Log.Debugf("RCV loop")
 	}
 }
 
@@ -354,7 +360,7 @@ func sendPollingMsg(c *websocket.Conn) {
 var lastpoll time.Time
 
 func heartbeatVoyager(c *websocket.Conn, quit chan bool) {
-	done := make(chan struct{})
+
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
 
@@ -365,8 +371,6 @@ func heartbeatVoyager(c *websocket.Conn, quit chan bool) {
 
 	for {
 		select {
-		case <-done:
-			return
 		case t := <-ticker.C:
 			now := t
 			elapsed := now.Sub(lastpoll)
@@ -384,7 +388,7 @@ func heartbeatVoyager(c *websocket.Conn, quit chan bool) {
 				sendToVoyager(c, data)
 			}
 		case <-quit:
-			time.Sleep(1 * time.Second)
+			Log.Debugf("Quit heartbeat loop!")
 			err := c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 			if err != nil {
 				Log.Println("write close:", err)
@@ -392,16 +396,17 @@ func heartbeatVoyager(c *websocket.Conn, quit chan bool) {
 			}
 			return
 		case <-interrupt:
+			Log.Debugf("Want interrupt!")
 			// Close the read goroutine
-			quit <- true
+			done <- true
 			// Cleanly close the websocket connection by sending a close message
 			err := c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 			if err != nil {
-				Log.Println("write close:", err)
+				Log.Warn("write close:", err)
 				return
 			}
 			Log.Println("Shutdown vigilence")
-			return
+			os.Exit(0)
 		}
 	}
 }
