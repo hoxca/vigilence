@@ -144,6 +144,7 @@ type params struct {
 }
 
 var voyagerStatus controldata
+var emergencyManage = false
 
 var timeout = time.Duration(1)
 
@@ -166,33 +167,17 @@ func main() {
 	go heartbeatVoyager(c, quit)
 	//	c.Close()
 
-	fmt.Printf("VOYAGER STATUS NONE: %s\n", strconv.FormatBool(controlDataUpdated))
-	//	finish := make(chan bool)
-	lastreturn := time.Now()
-
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-
 	for {
 		select {
 		case <-quit:
 			return
-		case t := <-ticker.C:
-			now := t
-			elapsed := now.Sub(lastreturn)
-
-			// manage heartbeat
-			if elapsed.Seconds() > 5 {
-				lastreturn = now
-				fmt.Printf("VOYAGER STATUS NONE: %s\n", strconv.FormatBool(controlDataUpdated))
+		default:
+			if controlDataUpdated && !emergencyManage {
 				voyagerStatusDebug()
 				emergencyLogic(c, quit)
 			}
 		}
 	}
-
-	fmt.Println("that's all folks !")
-
 }
 
 func voyagerStatusDebug() {
@@ -207,13 +192,14 @@ func voyagerStatusDebug() {
 
 func emergencyLogic(c *websocket.Conn, quit chan bool) {
 
+	emergencyManage = true
 	if controlDataUpdated {
 
 		if voyagerStatus.MNTCONN && voyagerStatus.SEQRUNNING && !voyagerStatus.DRAGRUNNING {
 			Log.Debugln("Voyager is on the fly, must stop sequence, park mount and return")
 			fmt.Println("OntheFly")
 			remoteAbort(c)
-			time.Sleep(5 * time.Second)
+			time.Sleep(3 * time.Second)
 			if voyagerStatus.CCDCOOL && voyagerStatus.CCDCONN {
 				remoteWarming(c)
 			}
@@ -277,8 +263,8 @@ func recvFromVoyager(c *websocket.Conn, quit chan bool) {
 			msg := string(message)
 			switch {
 			case strings.Contains(msg, `"Event":"ControlData"`):
-				Log.Debugf("recv msg: %s", strings.TrimRight(msg, "\r\n"))
 				if !controlDataUpdated {
+					Log.Debugf("recv msg: %s", strings.TrimRight(msg, "\r\n"))
 					voyagerStatus = parseControlData(message)
 				}
 			case strings.Contains(msg, `"Event":"LogEvent"`):
@@ -365,12 +351,14 @@ func sendPollingMsg(c *websocket.Conn) {
 	sendToVoyager(c, data)
 }
 
+var lastpoll time.Time
+
 func heartbeatVoyager(c *websocket.Conn, quit chan bool) {
 	done := make(chan struct{})
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
 
-	lastpoll := time.Now()
+	lastpoll = time.Now()
 
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -432,7 +420,7 @@ func connectVoyager(addr *string) (*websocket.Conn, error) {
 }
 
 func askForLog(c *websocket.Conn) {
-	time.Sleep(1 * time.Second)
+	//	time.Sleep(1 * time.Second)
 	level := 0
 	p := &params{
 		UID:   fmt.Sprintf("%s", uuid.Must(uuid.NewV4())),
@@ -451,7 +439,7 @@ func askForLog(c *websocket.Conn) {
 }
 
 func remoteSetDashboard(c *websocket.Conn) {
-	time.Sleep(2 * time.Second)
+	//	time.Sleep(2 * time.Second)
 
 	p := &params{
 		UID:  fmt.Sprintf("%s", uuid.Must(uuid.NewV4())),
@@ -517,12 +505,14 @@ func remotePark(c *websocket.Conn) {
 }
 
 func sendToVoyager(c *websocket.Conn, data []byte) {
+	lastpoll = time.Now()
 	err := c.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("%s\r\n", data)))
 	if err != nil {
 		Log.Println("write:", err)
 		return
 	}
 	Log.Debugf("send: %s", data)
+	time.Sleep(1 * time.Second)
 }
 
 func currentDateLog() string {
@@ -541,7 +531,9 @@ func currentDateLog() string {
 
 func setUpLogs() {
 	formatter := Log.NewStdFormatter()
+	formatter.Options.TimestampType = Log.TimestampTypeWall
 	formatter.Options.LogLevelFmt = Log.LogLevelFormatLongTitle
+	formatter.Options.WallclockTimestampFmt = time.ANSIC
 	Log.SetFormatter(formatter)
 	switch *verbosity {
 	case "debug":
