@@ -121,6 +121,8 @@ type controldata struct {
 	SEQRUNNING  bool
 }
 
+var controlDataUpdated = false
+
 type method struct {
 	Method string `json:"method"`
 	Params params `json:"params"`
@@ -161,41 +163,99 @@ func main() {
 	go recvFromVoyager(c, quit)
 	//askForLog(c)
 	remoteSetDashboard(c)
-	heartbeatVoyager(c, quit)
-	c.Close()
+	go heartbeatVoyager(c, quit)
+	//	c.Close()
 
-	voyagerStatusDebug()
-	emergencyLogic()
+	fmt.Printf("VOYAGER STATUS NONE: %s\n", strconv.FormatBool(controlDataUpdated))
+	//	finish := make(chan bool)
+	lastreturn := time.Now()
+
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-quit:
+			return
+		case t := <-ticker.C:
+			now := t
+			elapsed := now.Sub(lastreturn)
+
+			// manage heartbeat
+			if elapsed.Seconds() > 5 {
+				lastreturn = now
+				fmt.Printf("VOYAGER STATUS NONE: %s\n", strconv.FormatBool(controlDataUpdated))
+				voyagerStatusDebug()
+				emergencyLogic(c, quit)
+			}
+		}
+	}
+
+	fmt.Println("that's all folks !")
+
 }
 
 func voyagerStatusDebug() {
-	Log.Debugf("Voyager Status:")
-	Log.Debugf("  Voyager    status: %d", voyagerStatus.VOYSTAT)
-	Log.Debugf("  Voyager connected: %s", strconv.FormatBool(voyagerStatus.SETUPCONN))
-	Log.Debugf("  Mount   connected: %s", strconv.FormatBool(voyagerStatus.MNTCONN))
-	Log.Debugf("  Mount      parked: %s\n", strconv.FormatBool(voyagerStatus.MNTPARK))
+	if controlDataUpdated {
+		Log.Debugf("Voyager Status:")
+		Log.Debugf("  Voyager    status: %d", voyagerStatus.VOYSTAT)
+		Log.Debugf("  Voyager connected: %s", strconv.FormatBool(voyagerStatus.SETUPCONN))
+		Log.Debugf("  Mount   connected: %s", strconv.FormatBool(voyagerStatus.MNTCONN))
+		Log.Debugf("  Mount      parked: %s\n", strconv.FormatBool(voyagerStatus.MNTPARK))
+	}
 }
 
-func emergencyLogic() {
+func emergencyLogic(c *websocket.Conn, quit chan bool) {
 
-	if voyagerStatus.MNTCONN && voyagerStatus.SEQRUNNING && !voyagerStatus.DRAGRUNNING {
-		Log.Debugln("Voyager is on the fly, must stop sequence, park mount and return")
-	}
+	if controlDataUpdated {
 
-	if voyagerStatus.MNTCONN && voyagerStatus.SEQRUNNING && voyagerStatus.DRAGRUNNING {
-		Log.Debugln("Voyager dragscript and sequence are running, let's voyager manage emergency")
-	}
+		if voyagerStatus.MNTCONN && voyagerStatus.SEQRUNNING && !voyagerStatus.DRAGRUNNING {
+			Log.Debugln("Voyager is on the fly, must stop sequence, park mount and return")
+			fmt.Println("OntheFly")
+			remoteAbort(c)
+			time.Sleep(5 * time.Second)
+			if voyagerStatus.CCDCOOL && voyagerStatus.CCDCONN {
+				remoteWarming(c)
+			}
+			time.Sleep(1 * time.Second)
+			if !voyagerStatus.MNTPARK {
+				remotePark(c)
+			}
+			time.Sleep(2 * time.Second)
+			quit <- true
+		}
 
-	if voyagerStatus.MNTCONN && !voyagerStatus.SEQRUNNING && voyagerStatus.DRAGRUNNING {
-		Log.Debugln("Voyager dragscript is running, let's voyager manage emergency")
-	}
+		if voyagerStatus.MNTCONN && voyagerStatus.SEQRUNNING && voyagerStatus.DRAGRUNNING {
+			Log.Debugln("Voyager dragscript and sequence are running, let's voyager manage emergency")
+			fmt.Println("Dragscript")
+			quit <- true
+		}
 
-	if voyagerStatus.MNTCONN && !voyagerStatus.SEQRUNNING && !voyagerStatus.DRAGRUNNING {
-		Log.Debugln("Voyager idle and mount connected, must park mount and return")
-	}
+		if voyagerStatus.MNTCONN && !voyagerStatus.SEQRUNNING && voyagerStatus.DRAGRUNNING {
+			Log.Debugln("Voyager dragscript is running, let's voyager manage emergency")
+			fmt.Println("Dragscript")
+			quit <- true
+		}
 
-	if !voyagerStatus.SETUPCONN {
-		Log.Debugln("Voyager not connected, Talon will manage parking")
+		if voyagerStatus.MNTCONN && !voyagerStatus.SEQRUNNING && !voyagerStatus.DRAGRUNNING {
+			Log.Debugln("Voyager idle and mount connected, must park mount and return")
+			fmt.Println("IdleConnected")
+			if voyagerStatus.CCDCOOL && voyagerStatus.CCDCONN {
+				remoteWarming(c)
+			}
+			time.Sleep(1 * time.Second)
+			if !voyagerStatus.MNTPARK {
+				remotePark(c)
+			}
+			time.Sleep(2 * time.Second)
+			quit <- true
+		}
+
+		if !voyagerStatus.SETUPCONN {
+			Log.Debugln("Voyager not connected, Talon will manage parking")
+			fmt.Println("NotConnected")
+			quit <- true
+		}
 	}
 
 }
@@ -208,19 +268,19 @@ func recvFromVoyager(c *websocket.Conn, quit chan bool) {
 		default:
 			_, message, err := c.ReadMessage()
 			if err != nil {
-				Log.Println("read:", err)
+				Log.Debug("read:", err)
 				os.Exit(1)
+				//quit <- true
 				return
 			}
-
 			// parse incoming message
 			msg := string(message)
 			switch {
 			case strings.Contains(msg, `"Event":"ControlData"`):
 				Log.Debugf("recv msg: %s", strings.TrimRight(msg, "\r\n"))
-				voyagerStatus = parseControlData(message)
-				quit <- true
-				return
+				if !controlDataUpdated {
+					voyagerStatus = parseControlData(message)
+				}
 			case strings.Contains(msg, `"Event":"LogEvent"`):
 				ts, level, logline := parseLogEvent(message)
 				Log.Debugf("recv log: %.5f %s %s", ts, level, logline)
@@ -280,16 +340,17 @@ func parseControlData(message []byte) controldata {
 		Log.Debugln("Sequence   running: false")
 		cdata.SEQRUNNING = false
 	} else {
-		Log.Debugf("Sequence   running: true; sequence: %s\n", voyagerStatus.RUNSEQ)
+		Log.Debugf("Sequence   running: true; sequence: %s\n", cdata.RUNSEQ)
 		cdata.SEQRUNNING = true
 	}
 	if cdata.RUNDS == "" {
 		Log.Debugln("Dragscript running: false")
 		cdata.DRAGRUNNING = false
 	} else {
-		Log.Debugf("Dragscript running: true; dragscript: %s\n", voyagerStatus.RUNDS)
+		Log.Debugf("Dragscript running: true; dragscript: %s\n", cdata.RUNDS)
 		cdata.DRAGRUNNING = true
 	}
+	controlDataUpdated = true
 	return cdata
 }
 
@@ -323,7 +384,7 @@ func heartbeatVoyager(c *websocket.Conn, quit chan bool) {
 			elapsed := now.Sub(lastpoll)
 
 			// manage heartbeat
-			if elapsed.Seconds() > 5 {
+			if elapsed.Seconds() > 10 {
 				lastpoll = now
 				secs := now.Unix()
 				heartbeat := &event{
@@ -335,6 +396,7 @@ func heartbeatVoyager(c *websocket.Conn, quit chan bool) {
 				sendToVoyager(c, data)
 			}
 		case <-quit:
+			time.Sleep(1 * time.Second)
 			err := c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 			if err != nil {
 				Log.Println("write close:", err)
