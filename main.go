@@ -238,7 +238,13 @@ func emergencyLogic(c *websocket.Conn, quit chan bool) {
 		}
 
 		if !voyagerStatus.SETUPCONN {
-			Log.Debugln("Voyager not connected, Talon will manage parking")
+			Log.Debugln("Voyager not connected => Talon will manage parking")
+			fmt.Println("NotConnected")
+		}
+
+		// should neve happen but just in case
+		if voyagerStatus.SETUPCONN && !voyagerStatus.MNTCONN {
+			Log.Debugln("Voyager connected, mount not connected => Talon will manage parking")
 			fmt.Println("NotConnected")
 		}
 
