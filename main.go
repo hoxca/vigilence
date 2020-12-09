@@ -12,6 +12,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	spinner "github.com/Yash-Handa/spinner"
 	Log "github.com/apatters/go-conlog"
 	"github.com/gofrs/uuid"
 	"github.com/gorilla/websocket"
@@ -150,15 +151,22 @@ var timeout = time.Duration(1)
 var done chan bool
 var quit chan bool
 
+// vigilence return
+// 0 if we need Talon to park
+// 1 if the mount was confirmed parked
+// 2 in other case
 func main() {
+
+	var needPark = 0
+
 	flag.Parse()
 	setUpLogs()
 
 	c, errcon := connectVoyager(addr)
 	if errcon != nil {
 		Log.Debugf("Voyager is not running or is not responding !\n")
-		fmt.Println("Unreachable")
-		os.Exit(1)
+		fmt.Println("Voyager is unreachable => Talon will manage emergency")
+		os.Exit(0)
 	}
 	defer c.Close()
 
@@ -172,17 +180,61 @@ func main() {
 	for {
 		if controlDataUpdated && !emergencyManaged {
 			voyagerStatusDebug()
-			emergencyLogic(c, quit)
-		}
-		if emergencyManaged {
-			Log.Debugf("Emergency managed")
+			needPark = emergencyLogic(c, quit)
 			break
 		}
 		// Log.Debugf("Main loop")
 		time.Sleep(150 * time.Millisecond)
 	}
 
-	// fmt.Println("that's all folks")
+	if needPark == 2 {
+		var e time.Duration
+		var sp *spinner.Spinner
+
+		if *verbosity != "debug" {
+			sp, _ = spinner.New(1046, 100*time.Millisecond, spinner.White, spinner.Normal)
+			sp.SetPostText(" Wait for parking\n")
+			sp.Start()
+		}
+		ticker := time.NewTicker(5000 * time.Millisecond)
+		defer ticker.Stop()
+
+		controlDataUpdated = false
+		start := time.Now()
+		for {
+			select {
+			case to := <-ticker.C:
+				e = to.Sub(start)
+				Log.Debugln("Waiting Park: ", e)
+
+			}
+			// check Parking
+			if controlDataUpdated && voyagerStatus.MNTPARK {
+				if *verbosity != "debug" {
+					sp.Stop()
+				}
+				fmt.Printf("Mount is parked!\n")
+				needPark = 1
+				break
+			}
+			if e > 120*time.Second {
+
+				if *verbosity != "debug" {
+					sp.Stop()
+				}
+				fmt.Println("Mount Park timeout !")
+				break
+			}
+			controlDataUpdated = false
+		}
+	}
+
+	// exit program
+	done <- true
+	time.Sleep(1 * time.Second)
+	fmt.Println("That's all folks")
+
+	os.Exit(needPark)
 }
 
 func voyagerStatusDebug() {
@@ -195,19 +247,21 @@ func voyagerStatusDebug() {
 	}
 }
 
-func emergencyLogic(c *websocket.Conn, quit chan bool) {
+func emergencyLogic(c *websocket.Conn, quit chan bool) int {
 
+	var mustPark = 0
+	emergencyManaged = true
 	if controlDataUpdated {
 
 		if voyagerStatus.MNTCONN && voyagerStatus.SEQRUNNING && !voyagerStatus.DRAGRUNNING {
-			Log.Debugln("Voyager is on the fly, must stop sequence, park mount and return")
-			fmt.Println("OntheFly")
+			Log.Println("Voyager is connected and on the fly sequence is running => Voyager will park mount")
 			remoteAbort(c)
 			time.Sleep(3 * time.Second)
 			if voyagerStatus.CCDCOOL && voyagerStatus.CCDCONN {
 				remoteWarming(c)
 			}
 			time.Sleep(1 * time.Second)
+			mustPark = 2
 			if !voyagerStatus.MNTPARK {
 				remotePark(c)
 			}
@@ -215,22 +269,22 @@ func emergencyLogic(c *websocket.Conn, quit chan bool) {
 		}
 
 		if voyagerStatus.MNTCONN && voyagerStatus.SEQRUNNING && voyagerStatus.DRAGRUNNING {
-			Log.Debugln("Voyager dragscript and sequence are running, let's voyager manage emergency")
-			fmt.Println("Dragscript")
+			mustPark = 1
+			fmt.Println("Dragscript is running => Dragscript will manage emergency")
 		}
 
 		if voyagerStatus.MNTCONN && !voyagerStatus.SEQRUNNING && voyagerStatus.DRAGRUNNING {
-			Log.Debugln("Voyager dragscript is running, let's voyager manage emergency")
-			fmt.Println("Dragscript")
+			mustPark = 1
+			fmt.Println("Dragscript sequence is running => Dragscript will manage emergency")
 		}
 
 		if voyagerStatus.MNTCONN && !voyagerStatus.SEQRUNNING && !voyagerStatus.DRAGRUNNING {
-			Log.Debugln("Voyager idle and mount connected, must park mount and return")
-			fmt.Println("IdleConnected")
+			fmt.Println("Voyager is connected and idle => Voyager will manage to park mount")
 			if voyagerStatus.CCDCOOL && voyagerStatus.CCDCONN {
 				remoteWarming(c)
 			}
 			time.Sleep(1 * time.Second)
+			mustPark = 2
 			if !voyagerStatus.MNTPARK {
 				remotePark(c)
 			}
@@ -239,20 +293,18 @@ func emergencyLogic(c *websocket.Conn, quit chan bool) {
 
 		if !voyagerStatus.SETUPCONN {
 			Log.Debugln("Voyager not connected => Talon will manage parking")
-			fmt.Println("NotConnected")
+			mustPark = 0
+			fmt.Println("Voyager running setup is not connected => Talon will manage emergency")
 		}
 
 		// should neve happen but just in case
 		if voyagerStatus.SETUPCONN && !voyagerStatus.MNTCONN {
-			Log.Debugln("Voyager connected, mount not connected => Talon will manage parking")
-			fmt.Println("NotConnected")
+			mustPark = 0
+			Log.Debugln("Voyager is connected but mount is not connected => Talon will manage parking")
 		}
-
-		done <- true
-		time.Sleep(1 * time.Second)
-		emergencyManaged = true
 	}
 
+	return mustPark
 }
 
 func recvFromVoyager(c *websocket.Conn, done chan bool) {
@@ -349,6 +401,7 @@ func parseControlData(message []byte) controldata {
 		cdata.DRAGRUNNING = true
 	}
 	controlDataUpdated = true
+	Log.Debugf("Mount status: %s", strconv.FormatBool(cdata.MNTPARK))
 	return cdata
 }
 
