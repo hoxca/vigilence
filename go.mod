@@ -3,6 +3,7 @@ module vigilence
 go 1.15
 
 require (
+	github.com/Yash-Handa/spinner v1.1.3
 	github.com/apatters/go-conlog v1.3.0
 	github.com/gofrs/uuid v3.3.0+incompatible
 	github.com/gorilla/websocket v1.4.2
