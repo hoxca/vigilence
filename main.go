@@ -14,18 +14,20 @@ import (
 
 	spinner "github.com/Yash-Handa/spinner"
 	Log "github.com/apatters/go-conlog"
-	"github.com/gofrs/uuid"
+	"github.com/gofrs/uuid/v5"
 	"github.com/gorilla/websocket"
-	ps "github.com/mitchellh/go-ps"
+	// ps "github.com/mitchellh/go-ps" .
 )
 
 var addr = flag.String("addr", "127.0.0.1:5950", "voyager tcp server address")
 var verbosity = flag.String("level", "warn", "set log level of clandestine default warn")
-var heartbeat event
-var counterr = 0
+
+// var heartbeat event .
+// var counterr = 0 .
 
 type loglevel int
 
+/*
 const (
 	debug loglevel = iota
 	info
@@ -37,6 +39,9 @@ const (
 	request
 	emergency
 )
+*/
+
+const debug string = "debug"
 
 func (l loglevel) String() string {
 	return [...]string{
@@ -59,16 +64,17 @@ type event struct {
 	Inst      int     `json:"Inst"`
 }
 
-type logevent struct {
-	Event     string  `json:"Event"`
-	Timestamp float64 `json:"Timestamp"`
-	Host      string  `json:"Host"`
-	Inst      int     `json:"Inst"`
-	TimeInfo  float64 `json:"TimeInfo"`
-	Type      int     `json:"Type"`
-	Text      string  `json:"Text"`
-}
-
+/*
+	type logevent struct {
+		Event     string  `json:"Event"`
+		Timestamp float64 `json:"Timestamp"`
+		Host      string  `json:"Host"`
+		Inst      int     `json:"Inst"`
+		TimeInfo  float64 `json:"TimeInfo"`
+		Type      int     `json:"Type"`
+		Text      string  `json:"Text"`
+	}
+*/
 type controldata struct {
 	Event       string  `json:"Event"`
 	Timestamp   float64 `json:"Timestamp"`
@@ -118,8 +124,8 @@ type controldata struct {
 	ROTPA       int     `json:"ROTPA"`
 	ROTSKYPA    int     `json:"ROTSKYPA"`
 	ROTISROT    bool    `json:"ROTISROT"`
-	DRAGRUNNING bool
-	SEQRUNNING  bool
+	DRAGRUNNING bool    `json:"DRAGRUNNING"`
+	SEQRUNNING  bool    `json:"SEQRUNNING"`
 }
 
 var controlDataUpdated = false
@@ -147,18 +153,15 @@ type params struct {
 var voyagerStatus controldata
 var emergencyManaged = false
 
-var timeout = time.Duration(1)
 var done chan bool
 var quit chan bool
 
 // vigilence return
 // 0 if we need Talon to park
 // 1 if the mount was confirmed parked
-// 2 in other case
+// 2 in other case.
 func main() {
-
-	var needPark = 0
-
+	var needPark int
 	flag.Parse()
 	setUpLogs()
 
@@ -177,6 +180,19 @@ func main() {
 	remoteSetDashboard(c)
 	go heartbeatVoyager(c, quit)
 
+	needPark = computeNeedPark(c)
+	// exit program
+	done <- true
+	time.Sleep(1 * time.Second)
+	fmt.Println("That's all folks")
+
+	defer func() {
+		os.Exit(needPark)
+	}()
+}
+
+func computeNeedPark(c *websocket.Conn) int {
+	var needPark int
 	for {
 		if controlDataUpdated && !emergencyManaged {
 			voyagerStatusDebug()
@@ -191,11 +207,12 @@ func main() {
 		var e time.Duration
 		var sp *spinner.Spinner
 
-		if *verbosity != "debug" {
+		if *verbosity != debug {
 			sp, _ = spinner.New(1046, 100*time.Millisecond, spinner.White, spinner.Normal)
 			sp.SetPostText(" Wait for parking\n")
 			sp.Start()
 		}
+
 		ticker := time.NewTicker(5000 * time.Millisecond)
 		defer ticker.Stop()
 
@@ -206,11 +223,10 @@ func main() {
 			case to := <-ticker.C:
 				e = to.Sub(start)
 				Log.Debugln("Waiting Park: ", e)
-
 			}
 			// check Parking
 			if controlDataUpdated && voyagerStatus.MNTPARK {
-				if *verbosity != "debug" {
+				if *verbosity != debug {
 					sp.Stop()
 				}
 				fmt.Printf("Mount is parked!\n")
@@ -218,8 +234,7 @@ func main() {
 				break
 			}
 			if e > 120*time.Second {
-
-				if *verbosity != "debug" {
+				if *verbosity != debug {
 					sp.Stop()
 				}
 				fmt.Println("Mount Park timeout !")
@@ -228,13 +243,7 @@ func main() {
 			controlDataUpdated = false
 		}
 	}
-
-	// exit program
-	done <- true
-	time.Sleep(1 * time.Second)
-	fmt.Println("That's all folks")
-
-	os.Exit(needPark)
+	return needPark
 }
 
 func voyagerStatusDebug() {
@@ -247,12 +256,10 @@ func voyagerStatusDebug() {
 	}
 }
 
-func emergencyLogic(c *websocket.Conn, quit chan bool) int {
-
+func emergencyLogic(c *websocket.Conn, _ chan bool) int {
 	var mustPark = 0
 	emergencyManaged = true
 	if controlDataUpdated {
-
 		if voyagerStatus.MNTCONN && voyagerStatus.SEQRUNNING && !voyagerStatus.DRAGRUNNING {
 			Log.Println("Voyager is connected and on the fly sequence is running => Voyager will park mount")
 			remoteAbort(c)
@@ -347,6 +354,7 @@ func recvFromVoyager(c *websocket.Conn, done chan bool) {
 	}
 }
 
+/*
 func processAlreadyRunning(pname string) bool {
 	pid := os.Getpid()
 	process, _ := ps.Processes()
@@ -358,6 +366,7 @@ func processAlreadyRunning(pname string) bool {
 	}
 	return false
 }
+*/
 
 func parseLogEvent(message []byte) (float64, string, string) {
 	type logEvent struct {
@@ -371,7 +380,8 @@ func parseLogEvent(message []byte) (float64, string, string) {
 	}
 
 	var e logEvent
-	err := json.Unmarshal([]byte(message), &e)
+	// err := json.Unmarshal([]byte(message), &e) .
+	err := json.Unmarshal(message, &e)
 	if err != nil {
 		Log.Warn("Cannot parse logEvent: %s", err)
 	}
@@ -381,7 +391,8 @@ func parseLogEvent(message []byte) (float64, string, string) {
 
 func parseControlData(message []byte) controldata {
 	var cdata controldata
-	err := json.Unmarshal([]byte(message), &cdata)
+	// err := json.Unmarshal([]byte(message), &cdata) .
+	err := json.Unmarshal(message, &cdata)
 	if err != nil {
 		Log.Warn("Cannot parse controlData: %s", err)
 	}
@@ -405,6 +416,7 @@ func parseControlData(message []byte) controldata {
 	return cdata
 }
 
+/*
 func sendPollingMsg(c *websocket.Conn) {
 	secs := time.Now().Unix()
 	heartbeat := &event{
@@ -415,11 +427,11 @@ func sendPollingMsg(c *websocket.Conn) {
 	data, _ := json.Marshal(heartbeat)
 	sendToVoyager(c, data)
 }
+*/
 
 var lastpoll time.Time
 
 func heartbeatVoyager(c *websocket.Conn, quit chan bool) {
-
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
 
@@ -448,7 +460,10 @@ func heartbeatVoyager(c *websocket.Conn, quit chan bool) {
 			}
 		case <-quit:
 			Log.Debugf("Quit heartbeat loop!")
-			err := c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+			err := c.WriteMessage(
+				websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+			)
 			if err != nil {
 				Log.Println("write close:", err)
 				return
@@ -459,13 +474,18 @@ func heartbeatVoyager(c *websocket.Conn, quit chan bool) {
 			// Close the read goroutine
 			done <- true
 			// Cleanly close the websocket connection by sending a close message
-			err := c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+			err := c.WriteMessage(
+				websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+			)
 			if err != nil {
 				Log.Warn("write close:", err)
 				return
 			}
 			Log.Println("Shutdown vigilence")
-			os.Exit(0)
+
+			return
+			// os.Exit(0) .
 		}
 	}
 }
@@ -474,7 +494,7 @@ func connectVoyager(addr *string) (*websocket.Conn, error) {
 	u := url.URL{Scheme: "ws", Host: *addr, Path: "/"}
 	Log.Debugf("connecting to %s", u.String())
 
-	websocket.DefaultDialer.HandshakeTimeout = timeout * time.Second
+	websocket.DefaultDialer.HandshakeTimeout = 1 * time.Second
 	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
 		Log.Printf("Can't connect, verify Voyager address or tcp port in the Voyager configuration\n")
@@ -483,6 +503,7 @@ func connectVoyager(addr *string) (*websocket.Conn, error) {
 	return c, err
 }
 
+/*
 func askForLog(c *websocket.Conn) {
 	//	time.Sleep(1 * time.Second)
 	level := 0
@@ -501,6 +522,7 @@ func askForLog(c *websocket.Conn) {
 	data, _ := json.Marshal(askLog)
 	sendToVoyager(c, data)
 }
+*/
 
 func remoteSetDashboard(c *websocket.Conn) {
 	//	time.Sleep(2 * time.Second)
@@ -579,6 +601,7 @@ func sendToVoyager(c *websocket.Conn, data []byte) {
 	time.Sleep(1 * time.Second)
 }
 
+/*
 func currentDateLog() string {
 	var d string
 	t := time.Now()
@@ -592,6 +615,7 @@ func currentDateLog() string {
 	}
 	return d
 }
+*/
 
 func setUpLogs() {
 	formatter := Log.NewStdFormatter()

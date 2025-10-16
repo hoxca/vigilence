@@ -33,8 +33,8 @@ $(BIN)/%: | $(BIN) ; $(info $(M) building $(PACKAGE)…)
 		|| ret=$$?; \
 	   rm -rf $$tmp ; exit $$ret
 
-GOLINT = $(BIN)/golint
-$(BIN)/golint: PACKAGE=golang.org/x/lint/golint
+GOLINT = golangci-lint
+#$(BIN)/golint: PACKAGE=golang.org/x/lint/golint
 
 GOCOV = $(BIN)/gocov
 $(BIN)/gocov: PACKAGE=github.com/axw/gocov/...
@@ -82,9 +82,8 @@ test-coverage: fmt lint test-coverage-tools ; $(info $(M) running coverage tests
 	$Q $(GOCOV) convert $(COVERAGE_PROFILE) | $(GOCOVXML) > $(COVERAGE_XML)
 
 .PHONY: lint
-lint: | $(GOLINT) ; $(info $(M) running golint…  $Q $(GOLINT) -set_exit_status $(PKGS)) @ ## Run golint
-	@rm -f $(basename $(MODULE))
-	$Q $(GOLINT) -set_exit_status $(PKGS)
+lint: ; $(info $(M) running golint…  $Q $(GOLINT) -set_exit_status $(PKGS)) @ ## Run golint
+	$Q $(GOLINT) run ../$(PKGS)
 
 .PHONY: fmt
 fmt: ; $(info $(M) running gofmt…) @ ## Run gofmt on all source files
