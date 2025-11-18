@@ -121,8 +121,8 @@ type controldata struct {
 	RUNSEQ      string  `json:"RUNSEQ"`
 	RUNDS       string  `json:"RUNDS"`
 	ROTCONN     bool    `json:"ROTCONN"`
-	ROTPA       int     `json:"ROTPA"`
-	ROTSKYPA    int     `json:"ROTSKYPA"`
+	ROTPA       float64 `json:"ROTPA"`
+	ROTSKYPA    float64 `json:"ROTSKYPA"`
 	ROTISROT    bool    `json:"ROTISROT"`
 	DRAGRUNNING bool    `json:"DRAGRUNNING"`
 	SEQRUNNING  bool    `json:"SEQRUNNING"`
